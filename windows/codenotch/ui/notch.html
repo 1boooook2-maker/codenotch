@@ -138,7 +138,7 @@
      centre it, and a shrink-to-fit width would change as it moves. 246 is the upstream cap either way. */
   body[data-edge="top"] #card,body[data-edge="bottom"] #card{
     left:8px;right:auto;top:0;transform:none;margin-left:0;
-    width:246px;max-height:calc(100% - 150px);
+    width:246px;max-height:calc(100% - 170px);
   }
   body[data-edge="top"] #tail,body[data-edge="bottom"] #tail{right:auto;width:36px;height:32px}
   body[data-edge="top"] #tail{clip-path:path('M0 32C9 32 13.68 13.44 18 0C22.32 13.44 27 32 36 32Z')}
@@ -683,10 +683,12 @@ function reportHot(){
 function armWatchdog(){
   requestAnimationFrame(reportHot); // wait one frame so renderCard's new content is laid out before measuring
 }
-// Viewport fit (pure front-end fallback, independent of Rust): Rust sizes and zooms the window so this page is 360 CSS px wide,
-// so if this page's CSS viewport is not 360 wide the WebView's DPR disagrees with the monitor; CSS zoom pulls the layout back to the design size.
+// Viewport fit (pure front-end fallback, independent of Rust): Rust sizes and zooms the window so this page is DESIGN_W CSS px wide,
+// so if this page's CSS viewport is not that wide the WebView's DPR disagrees with the monitor; CSS zoom pulls the layout back to the design size.
+// The window is square and the same on every edge (NOTCH_W == NOTCH_H in main.rs), so this holds before the page knows which edge it is on.
+const DESIGN_W=560;
 function fitZoom(){
-  const z=innerWidth/360;
+  const z=innerWidth/DESIGN_W;
   document.documentElement.style.zoom=(Math.abs(z-1)>0.02)?String(z):'';
   return z;
 }

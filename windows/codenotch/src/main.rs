@@ -24,12 +24,19 @@ mod settings_window;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Logical size of the notch window: the 70 pt pill column on the right plus room for the hover card
-/// and its tail on the left. `fitZoom` in ui/notch.html divides by the same width.
-pub const NOTCH_W: f64 = 360.0;
+/// Logical size of the notch window. Square, and the same on every edge, because the pill runs along
+/// whichever edge it is on: down the left and right ones, across the top and bottom ones. The long side
+/// has to hold the pill *and* its two fillets, which are drawn outside it — five cells come to
+/// 18 + 5x80 + 4x14 + 18 = 492, plus 26 of fillet at each end = 544 — and the short side has to hold
+/// the 70 pt pill together with the hover card and its tail. 560 covers both with a little slack.
+///
+/// Sizing the window per edge would save some transparent area, but the page divides by this number
+/// in `fitZoom` to recover the design size, and it cannot know the edge on its first frame. One
+/// constant keeps that correction race-free.
+pub const NOTCH_W: f64 = 560.0;
 /// Hand-bumped build tag, written to run.log at startup so a log can always be matched to the exe that wrote it.
 pub const BUILD: &str = "r31";
-pub const NOTCH_H: f64 = 520.0; // 300 clipped the card once it held three window blocks plus the session list; 460 clipped Antigravity's two model groups once the reading was stale and an agent was working
+pub const NOTCH_H: f64 = 560.0; // 300 clipped the card once it held three window blocks plus the session list; 460 clipped Antigravity's two model groups once the reading was stale and an agent was working; 520 clipped the fillets off a five-provider pill
 
 pub struct AppState {
     pub store: Mutex<state::Store>,
