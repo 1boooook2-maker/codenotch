@@ -616,6 +616,39 @@ const AUTOHIDE_LEAVE_MS: u64 = 900;
 /// logical pixels. Thin, because the edge is a place the pointer arrives at deliberately.
 const REVEAL_BAND: f64 = 4.0;
 
+/// How long a peek offers the notch, matching the Mac's `PeekDuration.standard`. Its reasoning
+/// holds here: under a second or two the notch is gone before a glance lands on it, and much past
+/// ten it stops reading as an offer and becomes a thing parked on the edge to be waited out.
+const PEEK_MS: u64 = 5_000;
+
+/// When the current peek runs out, as ms since the epoch; 0 = not peeking.
+static PEEK_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn peek_active() -> bool {
+    let until = PEEK_UNTIL.load(std::sync::atomic::Ordering::Relaxed);
+    until != 0 && now_ms() < until
+}
+
+/// Shows an auto-hidden notch for a few seconds — the way in when it is not under the pointer and
+/// the edge it hides at is on some other screen. The pointer watchdog holds it open until the
+/// offer runs out, and hands back to the ordinary hover fold if the pointer arrives meanwhile, so
+/// a peek that turns into use does not snatch itself away mid-read.
+pub fn peek_notch(app: &AppHandle) {
+    let auto = {
+        let st = app.state::<AppState>();
+        let c = st.cfg.lock().unwrap();
+        c.notch_visible && c.notch_autohide
+    };
+    if !auto {
+        return; // Always-show has nothing to offer, and Hide means the notch is off, not shy
+    }
+    PEEK_UNTIL.store(now_ms() + PEEK_MS, std::sync::atomic::Ordering::Relaxed);
+    if let Some(w) = app.get_webview_window("notch") {
+        let _ = w.show();
+    }
+    applog("autohide: peeking");
+}
+
 /// The strip of screen edge that brings an auto-hidden notch back: only the edge it is pinned to,
 /// and only along the pill's own extent, so reaching for a scrollbar elsewhere on that edge does
 /// not summon it. Before the page has reported a rectangle the whole window edge is used — the
@@ -675,6 +708,7 @@ fn start_pointer_watchdog(app: AppHandle) {
             if auto {
                 let (ww, wh) = size.unwrap_or((0.0, 0.0));
                 let band = REVEAL_BAND * w.scale_factor().unwrap_or(1.0);
+                let peeking = peek_active();
                 if !w.is_visible().unwrap_or(true) {
                     if reveal_hit(&edge, &rects, lx, ly, ww, wh, band) {
                         let _ = w.show();
@@ -685,7 +719,9 @@ fn start_pointer_watchdog(app: AppHandle) {
                     miss = 0;
                     continue;
                 }
-                if inside {
+                // A peek holds it open on its own. Without this the fold below would take it away
+                // again within the second, because during a peek the pointer is almost never on it.
+                if inside || peeking {
                     away = 0;
                 } else {
                     away += 1;
@@ -1088,6 +1124,8 @@ pub fn apply_visibility(app: &AppHandle) {
     if let Some(t) = app.tray_by_id("main") {
         let _ = t.set_visible(tray_on);
     }
+    // The peek item comes and goes with the Show setting, and this is where that setting lands
+    tray::refresh_menu(app);
 }
 
 // ---------------- settings that used to live in the tray menu ----------------
@@ -1552,6 +1590,26 @@ mod tests {
     fn before_the_page_reports_the_whole_window_edge_answers() {
         // Otherwise an auto-hidden notch that has never rendered could not be summoned at all
         assert!(reveal_hit("right", &[], 498.0, 40.0, RW, RH, 5.0));
+    }
+
+    #[test]
+    fn a_peek_holds_the_notch_open_and_then_stops() {
+        use super::{peek_active, PEEK_UNTIL};
+        use std::sync::atomic::Ordering;
+        let was = PEEK_UNTIL.load(Ordering::Relaxed);
+
+        PEEK_UNTIL.store(0, Ordering::Relaxed);
+        assert!(!peek_active(), "no peek has been asked for");
+
+        PEEK_UNTIL.store(super::now_ms() + 5_000, Ordering::Relaxed);
+        assert!(peek_active(), "the offer is still open");
+
+        // Expiry is what hands the notch back to the hover fold; a peek that never ended would
+        // leave an auto-hiding notch parked on the edge for good.
+        PEEK_UNTIL.store(super::now_ms().saturating_sub(1), Ordering::Relaxed);
+        assert!(!peek_active(), "the offer has run out");
+
+        PEEK_UNTIL.store(was, Ordering::Relaxed);
     }
 
     #[test]
